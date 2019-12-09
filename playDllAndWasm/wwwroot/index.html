@@ -1,0 +1,76 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width" />
+    <title>Dll&WASM</title>
+    <base href="/" />
+</head>
+<body>
+
+    <input type="file" id="file" name="file" />
+    <br />
+    <br />
+    <label for="arg">Argument</label>
+    <input type="text" id="arg" />
+    <button class="readBytesButton">execute</button>
+
+    <script>
+        var executeMethod = undefined;
+
+        window.Module = {};
+        // it's triggered when the wasm is loaded
+        window.Module.onRuntimeInitialized = () => {
+            MONO.mono_load_runtime_and_bcl(
+                "managed",      // virtual fs prefix
+                "managed",      // deploy prefix
+                false,          // enable debugging
+                [               // array of dlls
+                    "CommonLibrary.dll",
+                    "SomeComputing.dll",
+                    "mscorlib.dll",
+                    "WebAssembly.Bindings.dll",
+                    "netstandard.dll",
+                ],
+                () => {
+                    Module.mono_bindings_init("[WebAssembly.Bindings]WebAssembly.Runtime");
+                    //binds method
+                    executeMethod = Module.mono_bind_static_method("[SomeComputing] SomeComputing.Computing:Compute");
+                }
+            )
+        };
+
+        function readBlob() {
+            const reader = new FileReader();
+
+            reader.onloadend = function (evt) {
+                if (evt.target.readyState == FileReader.DONE) {
+                    let buffer;
+                    try {
+                        let array = new Uint8Array(evt.target.result);
+                        buffer = Module._malloc(array.length * array.BYTES_PER_ELEMENT);//allocates buffer
+                        writeArrayToMemory(array, buffer);//writes bytes array to a buffer
+                        let arg = document.getElementById('arg').value;//argument for .net module
+                        let response = executeMethod(buffer, array.length, arg);
+                        console.log("from .NET", JSON.parse(response));
+                    } catch (e) { console.error(e); }
+                    finally {
+                        Module._free(buffer);//clears out the allocated heap data
+                    }
+                }
+            };
+            let file = document.getElementById('file').files[0];
+            reader.readAsArrayBuffer(file);
+        }
+
+        document.querySelector('.readBytesButton').addEventListener('click', function (evt) {
+            if (evt.target.tagName.toLowerCase() == 'button') {
+                readBlob();
+            }
+        }, false);
+    </script>
+
+    <!-- runs scripts that load mono.wasm and set it up -->
+    <script async src="./wasm/mono.js"></script>
+</body>
+</html>
